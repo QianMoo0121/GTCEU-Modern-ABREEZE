@@ -202,7 +202,8 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
                 if (lastFailedMatches != null) {
                     // Limit the number of failed matches to check to prevent performance issues
                     int maxChecks = Math.min(lastFailedMatches.size(),
-                        ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.maxFailedRecipeChecksPerTick : 10);
+                            ConfigHolder.INSTANCE != null ?
+                                    ConfigHolder.INSTANCE.machines.maxFailedRecipeChecksPerTick : 10);
                     for (int i = 0; i < maxChecks; i++) {
                         GTRecipe match = lastFailedMatches.get(i);
                         if (checkMatchedRecipeAvailable(match)) break;
@@ -330,10 +331,11 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
             if (checkMatchedRecipeAvailable(match)) {
                 long endTime = System.nanoTime();
                 long duration = (endTime - startTime) / 1_000_000;
-                int threshold = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.slowRecipeSearchThreshold : 50;
+                int threshold = ConfigHolder.INSTANCE != null ?
+                        ConfigHolder.INSTANCE.machines.slowRecipeSearchThreshold : 50;
                 if (duration > threshold / 5) { // Log if recipe search takes more than threshold/5 ms
                     GTCEu.LOGGER.debug("Recipe search took {}ms, checked {} recipes for machine at {}",
-                        duration, recipeCount, getMachine().getPos());
+                            duration, recipeCount, getMachine().getPos());
                 }
                 return;
             }
@@ -344,7 +346,8 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
             }
 
             // Limit the size of failed matches cache to prevent memory issues
-            int maxCacheSize = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.maxFailedRecipeCache : 100;
+            int maxCacheSize = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.maxFailedRecipeCache :
+                    100;
             if (lastFailedMatches.size() >= maxCacheSize) {
                 // Remove oldest entries when cache is full
                 lastFailedMatches.remove(0);
@@ -357,7 +360,7 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
         int threshold = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.slowRecipeSearchThreshold : 50;
         if (duration > threshold) { // Log if recipe search takes more than threshold ms
             GTCEu.LOGGER.warn("Slow recipe search took {}ms, checked {} recipes for machine at {}",
-                duration, recipeCount, getMachine().getPos());
+                    duration, recipeCount, getMachine().getPos());
         }
     }
 
@@ -619,6 +622,11 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
     public void saveCustomPersistedData(@NotNull CompoundTag tag, boolean forDrop) {
         super.saveCustomPersistedData(tag, forDrop);
 
+        // Check if chance cache persistence is disabled
+        if (ConfigHolder.INSTANCE != null && !ConfigHolder.INSTANCE.machines.enableChanceCachePersistence) {
+            return;
+        }
+
         // Skip saving empty chance caches to reduce NBT size
         if (this.chanceCaches.isEmpty() || this.chanceCaches.values().stream().allMatch(Map::isEmpty)) {
             return;
@@ -639,7 +647,8 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
                     compoundTag.putInt("cached_chance", entry.getIntValue());
                     cacheTag.add(compoundTag);
                 } catch (Exception e) {
-                    GTCEu.LOGGER.warn("Failed to serialize chance cache entry for capability {}: {}", cap.name, e.getMessage());
+                    GTCEu.LOGGER.warn("Failed to serialize chance cache entry for capability {}: {}", cap.name,
+                            e.getMessage());
                 }
             }
             if (!cacheTag.isEmpty()) {
@@ -655,7 +664,8 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
         long duration = (endTime - startTime) / 1_000_000; // Convert to milliseconds
         int threshold = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.slowSerializationThreshold : 50;
         if (duration > threshold) { // Log if serialization takes more than threshold ms
-            GTCEu.LOGGER.warn("Slow chance cache serialization took {}ms for machine at {}", duration, getMachine().getPos());
+            GTCEu.LOGGER.warn("Slow chance cache serialization took {}ms for machine at {}", duration,
+                    getMachine().getPos());
         }
     }
 
@@ -663,12 +673,33 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
     public void loadCustomPersistedData(@NotNull CompoundTag tag) {
         super.loadCustomPersistedData(tag);
 
+        // Check if chance cache persistence is disabled
+        if (ConfigHolder.INSTANCE != null && !ConfigHolder.INSTANCE.machines.enableChanceCachePersistence) {
+            return;
+        }
+
         if (!tag.contains("chance_cache")) {
             return;
         }
 
         long startTime = System.nanoTime();
         CompoundTag chanceCache = tag.getCompound("chance_cache");
+
+        // Check total cache size before loading to prevent performance issues
+        int totalEntries = 0;
+        for (String key : chanceCache.getAllKeys()) {
+            ListTag chanceTag = chanceCache.getList(key, Tag.TAG_COMPOUND);
+            totalEntries += chanceTag.size();
+        }
+
+        int maxTotalCacheSize = ConfigHolder.INSTANCE != null ?
+                ConfigHolder.INSTANCE.machines.maxFailedRecipeCache * 10 : 1000;
+        if (totalEntries > maxTotalCacheSize) {
+            GTCEu.LOGGER.warn(
+                    "Skipping all chance cache loading for machine at {} - total cache too large ({} entries, max {})",
+                    getMachine().getPos(), totalEntries, maxTotalCacheSize);
+            return;
+        }
 
         // Clear existing caches before loading
         this.chanceCaches.clear();
@@ -681,24 +712,54 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
             Object2IntMap map = this.chanceCaches.computeIfAbsent(cap, RecipeCapability::makeChanceCache);
 
             ListTag chanceTag = chanceCache.getList(key, Tag.TAG_COMPOUND);
+
+            // Skip loading if the cache is too large to prevent performance issues
+            int maxCacheSize = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.maxFailedRecipeCache :
+                    100;
+            if (chanceTag.size() > maxCacheSize) {
+                GTCEu.LOGGER.warn(
+                        "Skipping chance cache loading for capability {} - cache too large ({} entries, max {})",
+                        key, chanceTag.size(), maxCacheSize);
+                continue;
+            }
+
+            // Note: Cannot pre-allocate capacity as ensureCapacity is private in Object2IntOpenHashMap
+
+            // Use a temporary list to batch process entries and reduce map operations
+            List<Object> tempKeys = new ArrayList<>(chanceTag.size());
+            List<Integer> tempValues = new ArrayList<>(chanceTag.size());
+
             for (int i = 0; i < chanceTag.size(); ++i) {
                 CompoundTag chanceKey = chanceTag.getCompound(i);
                 try {
                     var entry = cap.serializer.fromNbt(chanceKey.get("entry"));
                     int value = chanceKey.getInt("cached_chance");
-                    // noinspection unchecked
-                    map.put(entry, value);
+                    tempKeys.add(entry);
+                    tempValues.add(value);
                 } catch (Exception e) {
-                    GTCEu.LOGGER.warn("Failed to deserialize chance cache entry for capability {}: {}", key, e.getMessage());
+                    GTCEu.LOGGER.warn("Failed to deserialize chance cache entry for capability {}: {}", key,
+                            e.getMessage());
+                }
+            }
+
+            // Batch insert to reduce hash map operations
+            for (int i = 0; i < tempKeys.size(); i++) {
+                try {
+                    // noinspection unchecked
+                    map.put(tempKeys.get(i), tempValues.get(i).intValue());
+                } catch (Exception e) {
+                    GTCEu.LOGGER.warn("Failed to insert chance cache entry for capability {}: {}", key, e.getMessage());
                 }
             }
         }
 
         long endTime = System.nanoTime();
         long duration = (endTime - startTime) / 1_000_000; // Convert to milliseconds
-        int threshold = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.slowDeserializationThreshold : 100;
+        int threshold = ConfigHolder.INSTANCE != null ? ConfigHolder.INSTANCE.machines.slowDeserializationThreshold :
+                100;
         if (duration > threshold) { // Log if deserialization takes more than threshold ms
-            GTCEu.LOGGER.warn("Slow chance cache deserialization took {}ms for machine at {}", duration, getMachine().getPos());
+            GTCEu.LOGGER.warn("Slow chance cache deserialization took {}ms for machine at {}", duration,
+                    getMachine().getPos());
         }
     }
 }

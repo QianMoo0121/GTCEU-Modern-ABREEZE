@@ -643,6 +643,11 @@ public class ConfigHolder {
         @Configurable.Comment({ "Threshold in milliseconds for logging slow recipe search operations", "Default: 50" })
         @Configurable.Range(min = 10, max = 1000)
         public int slowRecipeSearchThreshold = 50;
+        @Configurable
+        @Configurable.Comment({
+                "Whether to enable chance cache persistence (can cause performance issues with large caches)",
+                "Default: false" })
+        public boolean enableChanceCachePersistence = false;
     }
 
     public static class ToolConfigs {
