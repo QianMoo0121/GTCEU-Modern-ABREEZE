@@ -668,6 +668,28 @@ public class ConfigHolder {
         @Configurable.Range(min = 0, max = 14)
         public int voltageTierAdvImpeller = 3;
 
+        // Performance optimization settings
+        @Configurable
+        @Configurable.Comment({ "Maximum number of failed recipe matches to cache per machine", "Default: 100" })
+        @Configurable.Range(min = 10, max = 1000)
+        public int maxFailedRecipeCache = 100;
+        @Configurable
+        @Configurable.Comment({ "Maximum number of failed recipe checks per tick", "Default: 10" })
+        @Configurable.Range(min = 1, max = 50)
+        public int maxFailedRecipeChecksPerTick = 10;
+        @Configurable
+        @Configurable.Comment({ "Threshold in milliseconds for logging slow serialization operations", "Default: 50" })
+        @Configurable.Range(min = 10, max = 1000)
+        public int slowSerializationThreshold = 50;
+        @Configurable
+        @Configurable.Comment({ "Threshold in milliseconds for logging slow deserialization operations", "Default: 100" })
+        @Configurable.Range(min = 10, max = 1000)
+        public int slowDeserializationThreshold = 100;
+        @Configurable
+        @Configurable.Comment({ "Threshold in milliseconds for logging slow recipe search operations", "Default: 50" })
+        @Configurable.Range(min = 10, max = 1000)
+        public int slowRecipeSearchThreshold = 50;
+
         public static class NanoSaber {
 
             @Configurable
