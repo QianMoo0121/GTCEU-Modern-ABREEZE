@@ -634,7 +634,7 @@ public class RecipeLogic extends MachineTrait implements IEnhancedManaged, IWork
             for (var entry : cache.object2IntEntrySet()) {
                 try {
                     CompoundTag compoundTag = new CompoundTag();
-                    var obj = cap.contentToNbt(entry.getKey());
+                    var obj = cap.serializer.toNbtGeneric(entry.getKey());
                     compoundTag.put("entry", obj);
                     compoundTag.putInt("cached_chance", entry.getIntValue());
                     cacheTag.add(compoundTag);
